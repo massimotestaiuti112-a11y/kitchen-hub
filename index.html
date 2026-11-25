@@ -152,6 +152,16 @@
   .dev-item.active{outline:2px solid var(--ok)}
   .dev-item svg{width:24px;height:24px;opacity:.8}
   .dev-item small{display:block;color:var(--muted);font-size:12px}
+  .edit-btn{font-size:12px;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--accent);padding:6px 12px;border-radius:999px;background:rgba(242,166,90,.12)}
+  .pl-row{display:flex;align-items:center;gap:12px;padding:8px;border-radius:14px;margin-bottom:6px;background:rgba(255,248,240,.04)}
+  .pl-row.on{background:rgba(242,166,90,.12)}
+  .pl-row .pc{width:48px;height:48px;border-radius:10px;background:#2a221d center/cover;flex:none}
+  .pl-row .pn{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+  .pl-row .mv{width:36px;height:40px;border-radius:10px;font-size:22px;color:var(--muted)}
+  .pl-row .tg{width:44px;height:44px;border-radius:50%;border:2px solid var(--muted);flex:none}
+  .pl-row .tg::after{content:'+';font-size:22px;font-weight:700;color:var(--muted)}
+  .pl-row.on .tg{background:var(--accent);border-color:var(--accent)}
+  .pl-row.on .tg::after{content:'✓';color:#24160b;font-size:18px}
 
   .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(30px);opacity:0;background:#2b241f;border:1px solid var(--line);padding:14px 22px;border-radius:16px;z-index:60;transition:all .3s;font-size:15px;max-width:90vw;text-align:center}
   .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -283,7 +293,7 @@
       </div>
 
       <div class="card lists" id="listsCard" hidden>
-        <p class="label">Your playlists</p>
+        <p class="label"><span id="listsTitle">Your playlists</span><button class="edit-btn" id="plEditBtn">Edit</button></p>
         <div class="shelf" id="shelf"></div>
       </div>
     </section>
@@ -331,6 +341,23 @@
       <button class="btn danger" id="logoutBtn" type="button">Disconnect Spotify</button>
       <button class="btn" id="closeSettings" type="button">Cancel</button>
       <button class="btn primary" id="saveSettings" type="button">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- playlist picker -->
+<div class="scrim" id="plEdit">
+  <div class="sheet">
+    <h3>Kitchen playlists</h3>
+    <form class="add" id="plAddForm" style="margin:0 0 10px">
+      <input id="plLink" placeholder="Paste any Spotify playlist link" autocomplete="off" spellcheck="false">
+      <button type="submit" aria-label="Add playlist">+</button>
+    </form>
+    <small id="plHint" style="color:var(--muted);display:block;margin:0 0 12px;line-height:1.5"></small>
+    <div id="plAll"></div>
+    <div class="actions">
+      <button class="btn" id="plShowAll" type="button">Show all again</button>
+      <button class="btn primary" id="plDone" type="button">Done</button>
     </div>
   </div>
 </div>
@@ -682,23 +709,89 @@ async function playContext(uri){
 }
 
 /* ---------------- playlists ---------------- */
+// Pinned playlists ("kitchen playlists") are saved on this device. If none are pinned, all of the user's playlists show.
+let allPlaylists = [];
+const slim = p => ({ id: p.id, uri: p.uri || ('spotify:playlist:' + p.id), name: p.name || 'Playlist', img: (p.images && p.images[0] && p.images[0].url) || p.img || '' });
+const getPinned = () => store.get('pinned', []);
+const setPinned = list => { store.set('pinned', list); renderShelf(); };
+
 async function loadPlaylists(){
   try{
-    const j = await api('/me/playlists?limit=40');
-    const shelf = $('#shelf'); shelf.innerHTML = '';
-    (j.items || []).filter(Boolean).forEach(p => {
-      const b = document.createElement('button'); b.className = 'pl';
-      b.innerHTML = '<span class="cover"></span><div></div>';
-      const img = p.images && p.images[0] && p.images[0].url;
-      if (img) b.querySelector('.cover').style.backgroundImage = `url("${img}")`;
-      b.querySelector('.cover').style.display = 'block';
-      b.querySelector('div').textContent = p.name;
-      b.onclick = () => { playContext(p.uri); toast('Playing ' + p.name); };
-      shelf.appendChild(b);
-    });
-    $('#listsCard').hidden = !shelf.children.length;
+    let url = '/me/playlists?limit=50', out = [];
+    for (let page = 0; url && page < 6; page++){
+      const j = await api(url);
+      out = out.concat((j.items || []).filter(Boolean).map(slim));
+      url = j.next ? j.next.replace('https://api.spotify.com/v1', '') : null;
+    }
+    allPlaylists = out;
+    // refresh names/covers of pinned playlists that are in the library
+    const byId = Object.fromEntries(out.map(p => [p.id, p]));
+    const pinned = getPinned();
+    if (pinned.length) store.set('pinned', pinned.map(p => byId[p.id] || p));
   }catch(e){ console.warn('playlists', e); }
+  renderShelf();
 }
+function renderShelf(){
+  const pinned = getPinned();
+  const list = pinned.length ? pinned : allPlaylists;
+  $('#listsTitle').textContent = pinned.length ? 'Kitchen playlists' : 'Your playlists';
+  const shelf = $('#shelf'); shelf.innerHTML = '';
+  list.forEach(p => {
+    const b = document.createElement('button'); b.className = 'pl';
+    b.innerHTML = '<span class="cover" style="display:block"></span><div></div>';
+    if (p.img) b.querySelector('.cover').style.backgroundImage = `url("${p.img}")`;
+    b.querySelector('div').textContent = p.name;
+    b.onclick = () => { playContext(p.uri); toast('Playing ' + p.name); };
+    shelf.appendChild(b);
+  });
+  if (!list.length) shelf.innerHTML = '<div class="empty">No playlists yet — tap Edit to add some.</div>';
+  $('#listsCard').hidden = !store.get('tok', null);
+}
+
+/* ---- playlist picker ---- */
+function openPlEdit(){ $('#plEdit').classList.add('open'); $('#plLink').value = ''; drawPlEdit(); }
+function drawPlEdit(){
+  const pinned = getPinned(), ids = new Set(pinned.map(p => p.id));
+  const box = $('#plAll'); box.innerHTML = '';
+  // pinned ones first (in shelf order, with reorder arrows), then the rest of the library
+  const rest = allPlaylists.filter(p => !ids.has(p.id));
+  const rows = pinned.map(p => ({p, on: true})).concat(rest.map(p => ({p, on: false})));
+  if (!rows.length) box.innerHTML = '<div class="empty">No playlists found in your Spotify library.</div>';
+  rows.forEach(({p, on}, i) => {
+    const r = document.createElement('div'); r.className = 'pl-row' + (on ? ' on' : '');
+    r.innerHTML = '<span class="pc"></span><span class="pn"></span>' + (on ? '<button class="mv" data-d="-1" aria-label="Move left">‹</button><button class="mv" data-d="1" aria-label="Move right">›</button>' : '') + '<button class="tg" aria-label="Show on hub"></button>';
+    if (p.img) r.querySelector('.pc').style.backgroundImage = `url("${p.img}")`;
+    r.querySelector('.pn').textContent = p.name;
+    r.querySelector('.tg').onclick = () => {
+      const cur = getPinned();
+      setPinned(on ? cur.filter(x => x.id !== p.id) : cur.concat([p])); drawPlEdit();
+    };
+    r.querySelectorAll('.mv').forEach(m => m.onclick = () => {
+      const cur = getPinned(), j = i + +m.dataset.d;
+      if (j < 0 || j >= cur.length) return;
+      [cur[i], cur[j]] = [cur[j], cur[i]]; setPinned(cur); drawPlEdit();
+    });
+    box.appendChild(r);
+  });
+  $('#plHint').textContent = pinned.length ? `${pinned.length} on the hub. Tap ✓ to remove, ‹ › to reorder.` : 'Nothing picked yet, so the hub shows all your playlists. Tap + to choose.';
+}
+$('#plAddForm').onsubmit = async e => {
+  e.preventDefault();
+  const v = $('#plLink').value.trim();
+  const m = v.match(/playlist[/:]([A-Za-z0-9]{22})/) || v.match(/^([A-Za-z0-9]{22})$/);
+  if (!m){ toast('Paste a Spotify playlist link (Share → Copy link)'); return; }
+  const id = m[1];
+  if (getPinned().some(p => p.id === id)){ toast('Already on the hub'); return; }
+  let p = allPlaylists.find(x => x.id === id);
+  if (!p){
+    try{ p = slim(await api('/playlists/' + id + '?fields=id,uri,name,images')); }
+    catch{ p = slim({id, name: 'Spotify playlist'}); }
+  }
+  setPinned(getPinned().concat([p])); $('#plLink').value = ''; $('#plLink').blur(); drawPlEdit(); toast('Added ' + p.name);
+};
+$('#plEditBtn').onclick = openPlEdit;
+$('#plDone').onclick = () => $('#plEdit').classList.remove('open');
+$('#plShowAll').onclick = () => { setPinned([]); drawPlEdit(); };
 
 /* ---------------- devices ---------------- */
 let pendingUri = null;
