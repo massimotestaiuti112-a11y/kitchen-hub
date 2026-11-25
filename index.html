@@ -312,7 +312,12 @@
   <div class="sheet">
     <h3>Hub settings</h3>
     <div class="field">
-      <label for="sHouse">Household name</label>
+      <label for="sGreet">Greeting name</label>
+      <input id="sGreet" placeholder="e.g. the Testaiuti family">
+      <small>Shown as “Good evening, …”.</small>
+    </div>
+    <div class="field">
+      <label for="sHouse">Speaker name</label>
       <input id="sHouse" placeholder="e.g. The Rivera Kitchen">
     </div>
     <div class="field">
@@ -402,8 +407,8 @@ function tick(){
   const html = `${h12}:${m}<span class="ampm">${ap}</span>`;
   $('#clock').innerHTML = html; $('#aClock').innerHTML = html;
   const part = h < 5 ? 'Good night' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
-  const house = store.get('house','');
-  $('#greeting').textContent = house ? `${part}, ${house}` : part;
+  const gname = store.get('greetName', 'the Testaiuti family');
+  $('#greeting').textContent = gname ? `${part}, ${gname}` : part;
   const ds = d.toLocaleDateString(undefined,{weekday:'long', month:'long', day:'numeric'});
   $('#dateLine').textContent = ds; $('#aSub').textContent = ds + (lastWeatherLine ? ' · ' + lastWeatherLine : '');
 }
@@ -622,12 +627,12 @@ function render(){
   if (!it){
     $('#track').textContent = 'Nothing playing';
     $('#artist').textContent = sdkDevice ? 'Pick a playlist below to start' : 'Pick a playlist or choose a speaker';
-    $('#art').style.backgroundImage = ''; $('#backdrop').classList.remove('on');
+    $('#art').style.backgroundImage = ''; lastArt = ''; if ($('#art').firstElementChild) $('#art').firstElementChild.style.display = ''; $('#backdrop').classList.remove('on');
     $('#barFill').style.width = '0%'; $('#tNow').textContent = '0:00'; $('#tDur').textContent = '0:00';
     $('#aSong').hidden = true;
   } else {
     const imgs = (it.album && it.album.images) || it.images || (it.show && it.show.images) || [];
-    const art = imgs[0] ? imgs[0].url : '';
+    const art = (imgs.find(i => i && i.url) || {}).url || '';
     const who = it.artists ? it.artists.map(a => a.name).join(', ') : (it.show ? it.show.name : '');
     $('#track').textContent = it.name; $('#artist').textContent = who;
     if (art !== lastArt){
@@ -831,7 +836,7 @@ $('#closeDevices').onclick = () => { pendingUri = null; $('#devices').classList.
 
 /* ---------------- settings ---------------- */
 function openSettings(){
-  $('#sHouse').value = store.get('house',''); $('#sClient').value = store.get('clientId','');
+  $('#sHouse').value = store.get('house',''); $('#sGreet').value = store.get('greetName','the Testaiuti family'); $('#sClient').value = store.get('clientId','');
   $('#sRedirect').value = REDIRECT; $('#sCity').value = store.get('city','');
   $('#sUnits').value = store.get('units','fahrenheit'); $('#sIdle').value = String(store.get('idle', 5));
   $('#logoutBtn').style.display = store.get('tok', null) ? '' : 'none';
@@ -841,7 +846,7 @@ $('#settingsBtn').onclick = openSettings;
 $('#closeSettings').onclick = () => $('#settings').classList.remove('open');
 $('#saveSettings').onclick = () => {
   const cityChanged = $('#sCity').value.trim() !== store.get('city','') || $('#sUnits').value !== store.get('units','fahrenheit');
-  store.set('house', $('#sHouse').value.trim()); store.set('clientId', $('#sClient').value.trim());
+  store.set('house', $('#sHouse').value.trim()); store.set('greetName', $('#sGreet').value.trim()); store.set('clientId', $('#sClient').value.trim());
   store.set('city', $('#sCity').value.trim()); store.set('units', $('#sUnits').value); store.set('idle', +$('#sIdle').value);
   $('#settings').classList.remove('open'); tick(); if (cityChanged) loadWeather(); toast('Saved');
 };
