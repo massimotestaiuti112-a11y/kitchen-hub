@@ -214,15 +214,29 @@
   @keyframes pulse{50%{filter:brightness(1.12)}}
 
   /* ambient / idle mode */
-  .ambient-view{color:#fff;--muted:rgba(255,255,255,.65);position:fixed;inset:0;z-index:40;display:none;flex-direction:column;justify-content:flex-end;padding:6vw;background:rgba(10,8,6,.55)}
-  body.ambient .ambient-view{display:flex}
-  body.ambient .app{filter:blur(18px) brightness(.5);transition:filter 1s}
-  .ambient-view .time{font-size:clamp(110px,17vw,240px)}
-  .ambient-view .sub{font-size:clamp(18px,2vw,26px);color:var(--muted);margin-top:10px}
-  .ambient-view .song{display:flex;align-items:center;gap:16px;margin-top:28px}
-  .ambient-view .song .a{width:64px;height:64px;border-radius:12px;background:rgba(var(--tint),.1) center/cover}
-  .ambient-view .song b{display:block;font-size:20px}
-  .ambient-view .song span{color:var(--muted)}
+  .app{transition:filter 1s ease, transform 1s ease}
+  .clock .time{align-self:flex-start}
+  .ambient-view{color:#fff;--muted:rgba(255,255,255,.72);position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:4vw;visibility:hidden;background:rgba(8,6,5,0);transition:background .9s ease}
+  body.ambient .ambient-view, body.ambient-out .ambient-view{visibility:visible}
+  body.ambient .ambient-view{background:rgba(8,6,5,.42)}
+  body.ambient .app{filter:blur(22px) brightness(.55);transform:scale(1.04)}
+  body.ambient #clock, body.ambient-out #clock, body.ambient.has-song #art, body.ambient-out.has-song #art{visibility:hidden}
+  .ambient-view .time{font-size:clamp(120px,19vw,270px);text-shadow:0 10px 50px rgba(0,0,0,.35);will-change:transform}
+  .ambient-view .fade{opacity:0;transform:translateY(14px);transition:opacity .3s ease, transform .3s ease}
+  body.ambient .ambient-view .fade{opacity:1;transform:none;transition:opacity .7s ease .6s, transform .7s ease .6s}
+  .ambient-view .sub{font-size:clamp(18px,2vw,26px);color:var(--muted);margin-top:6px}
+  .ambient-view .atimer{margin-top:18px;font-family:var(--display);font-size:clamp(30px,3.6vw,48px);color:var(--accent);background:rgba(0,0,0,.25);padding:6px 22px;border-radius:999px}
+  .ambient-view .song{display:flex;align-items:center;gap:22px;margin-top:5vh;text-align:left;max-width:80vw}
+  .ambient-view .song .a{width:clamp(96px,11vw,150px);aspect-ratio:1;border-radius:20px;flex:none;background:rgba(var(--tint),.1) center/cover;box-shadow:0 24px 50px -16px rgba(0,0,0,.7);will-change:transform}
+  .ambient-view .song .st{min-width:0}
+  .ambient-view .song b{display:block;font-family:var(--display);font-weight:500;font-size:clamp(24px,2.8vw,38px);line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ambient-view .song span{display:block;color:var(--muted);font-size:clamp(16px,1.6vw,21px);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .eq{display:inline-flex;align-items:flex-end;gap:4px;height:22px;margin-top:12px}
+  .eq i{width:5px;border-radius:3px;background:var(--accent);height:30%;animation:eq 1s ease-in-out infinite;animation-play-state:paused}
+  .eq i:nth-child(2){animation-delay:-.35s}.eq i:nth-child(3){animation-delay:-.7s}.eq i:nth-child(4){animation-delay:-.2s}
+  body.playing .eq i{animation-play-state:running}
+  @keyframes eq{0%,100%{height:25%}50%{height:100%}}
+  @media (prefers-reduced-motion: reduce){ .app,.ambient-view,.ambient-view .fade{transition:none!important} .eq i{animation:none} }
 
   /* portrait / narrow */
   @media (max-aspect-ratio: 1/1){
@@ -363,8 +377,9 @@
 <!-- idle / ambient screen -->
 <div class="ambient-view" id="ambient">
   <div class="time" id="aClock">--:--</div>
-  <div class="sub" id="aSub"></div>
-  <div class="song" id="aSong" hidden><div class="a" id="aArt"></div><div><b id="aTrack"></b><span id="aArtist"></span></div></div>
+  <div class="sub fade" id="aSub"></div>
+  <div class="atimer fade" id="aTimer" hidden></div>
+  <div class="song" id="aSong" hidden><div class="a" id="aArt"></div><div class="st fade"><b id="aTrack"></b><span id="aArtist"></span><div class="eq"><i></i><i></i><i></i><i></i></div></div></div>
 </div>
 
 <!-- settings -->
@@ -645,6 +660,7 @@ function drawTimer(){
   $('#timerFace').textContent = h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}` : `${m}:${String(sec).padStart(2,'0')}`;
   $('#timerFace').classList.toggle('running', tRunning);
   $('#timerGo').textContent = tRunning ? 'Pause' : 'Start';
+  $('#aTimer').hidden = !(tRunning || tRemain > 0); $('#aTimer').textContent = '⏱ ' + $('#timerFace').textContent;
   if (tRunning && s === 0) ring();
 }
 document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => {
@@ -889,7 +905,7 @@ function pollQueueSoon(){ clearTimeout(qT); qT = setTimeout(loadQueue, 1200); }
 function render(){
   const it = state && state.item;
   const playing = !!(state && state.is_playing);
-  $('#playIco').innerHTML = playing ? PAUSE : PLAY;
+  $('#playIco').innerHTML = playing ? PAUSE : PLAY; document.body.classList.toggle('playing', playing);
   if (!it){
     $('#track').textContent = 'Nothing playing';
     $('#artist').textContent = sdkDevice ? 'Pick a playlist below to start' : 'Pick a playlist or choose a speaker';
@@ -1195,18 +1211,57 @@ document.addEventListener('pointerup', e => {
 }, true);
 
 /* ---------------- ambient mode ---------------- */
-let idleT;
+let idleT, outT;
+const B = document.body, EASE = 'cubic-bezier(.2,.75,.15,1)';
+const calm = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+// FLIP: make `el` appear to start at rect `from`, then glide to its real spot (or the reverse)
+function rectXform(el, from){
+  const to = el.getBoundingClientRect(); if (!from.width || !to.width) return '';
+  const s = from.height / to.height;
+  const dx = (from.left + from.width / 2) - (to.left + to.width / 2), dy = (from.top + from.height / 2) - (to.top + to.height / 2);
+  return `translate(${dx}px, ${dy}px) scale(${s})`;
+}
+function flyIn(el, from, ms){
+  if (calm()) return;
+  const t = rectXform(el, from); if (!t) return;
+  el.style.transition = 'none'; el.style.transform = t; el.getBoundingClientRect();
+  el.style.transition = `transform ${ms}ms ${EASE}`; el.style.transform = '';
+}
+function flyOut(el, to, ms){
+  if (calm()) return;
+  el.style.transition = 'none'; el.style.transform = ''; const t = rectXform(el, to); if (!t) return;
+  el.getBoundingClientRect(); el.style.transition = `transform ${ms}ms ${EASE}`; el.style.transform = t;
+}
+function enterAmbient(){
+  if (B.classList.contains('ambient')) return;
+  clearTimeout(outT); B.classList.remove('ambient-out');
+  const clockR = $('#clock').getBoundingClientRect(), artR = $('#art').getBoundingClientRect();
+  const song = !$('#aSong').hidden && !$('#npView').hidden;
+  B.classList.toggle('has-song', song); B.classList.add('ambient');
+  flyIn($('#aClock'), clockR, 1150);
+  if (song) flyIn($('#aArt'), artR, 1250);
+}
+function exitAmbient(){
+  if (!B.classList.contains('ambient')) return;
+  const clockR = $('#clock').getBoundingClientRect(), artR = $('#art').getBoundingClientRect();
+  B.classList.add('ambient-out'); B.classList.remove('ambient');
+  flyOut($('#aClock'), clockR, 700);
+  if (B.classList.contains('has-song')) flyOut($('#aArt'), artR, 750);
+  clearTimeout(outT);
+  outT = setTimeout(() => {
+    B.classList.remove('ambient-out', 'has-song');
+    ['#aClock', '#aArt'].forEach(q => { const el = $(q); el.style.transition = 'none'; el.style.transform = ''; });
+  }, calm() ? 0 : 780);
+}
 function wake(){
-  document.body.classList.remove('ambient'); clearTimeout(idleT);
+  exitAmbient(); clearTimeout(idleT);
   const mins = store.get('idle', 5);
   if (mins > 0) idleT = setTimeout(() => {
-    if (!document.querySelector('.scrim.open') && !$('#alarm').classList.contains('open')) document.body.classList.add('ambient');
+    if (!document.querySelector('.scrim.open') && !$('#alarm').classList.contains('open')) enterAmbient();
+    else wake();
   }, mins * 60e3);
 }
-['pointerdown','keydown'].forEach(ev => document.addEventListener(ev, () => {
-  if (document.body.classList.contains('ambient')){ wake(); }
-  else wake();
-}, true));
+['pointerdown','keydown'].forEach(ev => document.addEventListener(ev, () => wake(), true));
 $('#ambient').addEventListener('pointerdown', e => { e.stopPropagation(); wake(); });
 wake();
 
