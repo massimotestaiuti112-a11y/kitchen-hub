@@ -412,10 +412,11 @@
   <div class="sheet">
     <h3>Kitchen playlists</h3>
     <form class="add" id="plAddForm" style="margin:0 0 10px">
-      <input id="plLink" placeholder="Paste any Spotify playlist link" autocomplete="off" spellcheck="false">
-      <button type="submit" aria-label="Add playlist">+</button>
+      <input id="plLink" placeholder="Search Spotify (e.g. soft rock) or paste a link" autocomplete="off" spellcheck="false" enterkeyhint="search">
+      <button type="submit" aria-label="Search or add" style="display:grid;place-items:center"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
     </form>
     <small id="plHint" style="color:var(--muted);display:block;margin:0 0 12px;line-height:1.5"></small>
+    <div id="plResults"></div>
     <div id="plAll"></div>
     <div class="actions">
       <button class="btn" id="plShowAll" type="button">Show all again</button>
@@ -856,7 +857,7 @@ async function playContext(uri){
 
 /* ---------------- playlists ---------------- */
 // Pinned playlists ("kitchen playlists") are saved on this device. If none are pinned, all of the user's playlists show.
-let allPlaylists = [];
+let allPlaylists = [], plError = '', plLoaded = false, meName = '';
 const slim = p => ({ id: p.id, uri: p.uri || ('spotify:playlist:' + p.id), name: p.name || 'Playlist', img: (p.images && p.images[0] && p.images[0].url) || p.img || '' });
 const getPinned = () => store.get('pinned', []);
 const setPinned = list => { store.set('pinned', list); renderShelf(); };
@@ -869,14 +870,15 @@ async function loadPlaylists(){
       out = out.concat((j.items || []).filter(Boolean).map(slim));
       url = j.next ? j.next.replace('https://api.spotify.com/v1', '') : null;
     }
-    allPlaylists = out;
+    allPlaylists = out; plError = ''; plLoaded = true;
     // refresh names/covers of pinned playlists that are in the library
     const byId = Object.fromEntries(out.map(p => [p.id, p]));
     const pinned = getPinned();
     if (pinned.length) store.set('pinned', pinned.map(p => byId[p.id] || p));
-  }catch(e){ console.warn('playlists', e); }
+  }catch(e){ console.warn('playlists', e); plError = (e.status ? e.status + ': ' : '') + e.message; plLoaded = true; }
   renderShelf();
 }
+async function loadMe(){ try{ const me = await api('/me'); meName = me.display_name || me.email || me.id || ''; }catch(e){ console.warn('me', e); } }
 function renderShelf(){
   const pinned = getPinned();
   const list = pinned.length ? pinned : allPlaylists;
@@ -895,14 +897,27 @@ function renderShelf(){
 }
 
 /* ---- playlist picker ---- */
-function openPlEdit(){ $('#plEdit').classList.add('open'); $('#plLink').value = ''; drawPlEdit(); }
+async function openPlEdit(){
+  $('#plEdit').classList.add('open'); $('#plLink').value = ''; $('#plResults').innerHTML = '';
+  drawPlEdit();
+  if (!allPlaylists.length){ $('#plAll').innerHTML = '<div class="empty">Loading your playlists…</div>'; await Promise.all([loadPlaylists(), meName ? null : loadMe()]); drawPlEdit(); }
+}
 function drawPlEdit(){
   const pinned = getPinned(), ids = new Set(pinned.map(p => p.id));
   const box = $('#plAll'); box.innerHTML = '';
   // pinned ones first (in shelf order, with reorder arrows), then the rest of the library
   const rest = allPlaylists.filter(p => !ids.has(p.id));
   const rows = pinned.map(p => ({p, on: true})).concat(rest.map(p => ({p, on: false})));
-  if (!rows.length) box.innerHTML = '<div class="empty">No playlists found in your Spotify library.</div>';
+  if (!rows.length){
+    const who = meName ? ` (signed in as ${meName})` : '';
+    box.innerHTML = '<div class="empty"></div>';
+    box.firstChild.textContent = plError
+      ? `Spotify didn’t send your playlists — ${plError}. Tap Retry, or disconnect and connect again in settings.`
+      : `This Spotify account${who} has no saved playlists yet. Search above, or save/follow playlists in the Spotify app and tap Retry.`;
+    const retry = document.createElement('button'); retry.className = 'btn'; retry.type = 'button'; retry.textContent = 'Retry'; retry.style.marginTop = '8px';
+    retry.onclick = async () => { box.innerHTML = '<div class="empty">Loading…</div>'; await Promise.all([loadPlaylists(), loadMe()]); drawPlEdit(); };
+    box.appendChild(retry);
+  }
   rows.forEach(({p, on}, i) => {
     const r = document.createElement('div'); r.className = 'pl-row' + (on ? ' on' : '');
     r.innerHTML = '<span class="pc"></span><span class="pn"></span>' + (on ? '<button class="mv" data-d="-1" aria-label="Move left">‹</button><button class="mv" data-d="1" aria-label="Move right">›</button>' : '') + '<button class="tg" aria-label="Show on hub"></button>';
@@ -925,7 +940,7 @@ $('#plAddForm').onsubmit = async e => {
   e.preventDefault();
   const v = $('#plLink').value.trim();
   const m = v.match(/playlist[/:]([A-Za-z0-9]{22})/) || v.match(/^([A-Za-z0-9]{22})$/);
-  if (!m){ toast('Paste a Spotify playlist link (Share → Copy link)'); return; }
+  if (!m){ if (v) searchPlaylists(v); return; }
   const id = m[1];
   if (getPinned().some(p => p.id === id)){ toast('Already on the hub'); return; }
   let p = allPlaylists.find(x => x.id === id);
@@ -935,6 +950,30 @@ $('#plAddForm').onsubmit = async e => {
   }
   setPinned(getPinned().concat([p])); $('#plLink').value = ''; $('#plLink').blur(); drawPlEdit(); toast('Added ' + p.name);
 };
+async function searchPlaylists(q){
+  const box = $('#plResults'); box.innerHTML = '<div class="empty">Searching…</div>';
+  try{
+    const j = await api('/search?type=playlist&limit=10&q=' + encodeURIComponent(q));
+    const items = ((j.playlists && j.playlists.items) || []).filter(Boolean).map(slim);
+    box.innerHTML = items.length ? '<div style="margin:4px 0 8px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600">Results for “<span></span>”</div>' : '<div class="empty">No playlists found. Try other words.</div>';
+    if (items.length) box.querySelector('div span').textContent = q;
+    const pinnedIds = new Set(getPinned().map(p => p.id));
+    items.forEach(p => {
+      const r = document.createElement('div'); r.className = 'pl-row' + (pinnedIds.has(p.id) ? ' on' : '');
+      r.innerHTML = '<span class="pc"></span><span class="pn"></span><button class="mv" aria-label="Play now">▶</button><button class="tg" aria-label="Add to hub"></button>';
+      if (p.img) r.querySelector('.pc').style.backgroundImage = `url("${p.img}")`;
+      r.querySelector('.pn').textContent = p.name;
+      r.querySelector('.mv').onclick = () => { playContext(p.uri); toast('Playing ' + p.name); };
+      r.querySelector('.tg').onclick = () => {
+        const cur = getPinned(), on = cur.some(x => x.id === p.id);
+        setPinned(on ? cur.filter(x => x.id !== p.id) : cur.concat([p])); r.classList.toggle('on', !on); drawPlEdit();
+        if (!on) toast('Added ' + p.name);
+      };
+      box.appendChild(r);
+    });
+    box.appendChild(Object.assign(document.createElement('div'), {style: 'height:1px;background:var(--line);margin:10px 0'}));
+  }catch(e){ box.innerHTML = '<div class="empty"></div>'; box.firstChild.textContent = 'Search didn’t work: ' + e.message; }
+}
 $('#plEditBtn').onclick = openPlEdit;
 $('#plDone').onclick = () => $('#plEdit').classList.remove('open');
 $('#plShowAll').onclick = () => { setPinned([]); drawPlEdit(); };
@@ -1048,7 +1087,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && st
 (async function boot(){
   await handleCallback();
   if (store.get('tok', null)){
-    showPlayer(); initSDK(); poll(); loadPlaylists();
+    showPlayer(); initSDK(); poll(); loadPlaylists(); loadMe();
     setInterval(loadPlaylists, 30*60e3);
   } else {
     showConnect(store.get('clientId','') ? undefined : 'Open settings (top right) and paste your Spotify Client ID to get started. It takes about 3 minutes.');
