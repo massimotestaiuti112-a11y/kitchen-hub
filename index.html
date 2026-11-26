@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#14110f">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Kitchen Hub</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -208,6 +214,9 @@
         <div class="t" id="wTemp">--°</div>
         <div class="d"><span id="wDesc"></span><br><span id="wPlace"></span></div>
       </div>
+      <button class="icon-btn" id="fsBtn" aria-label="Full screen">
+        <svg id="fsIco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      </button>
       <button class="icon-btn" id="settingsBtn" aria-label="Settings">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
@@ -337,6 +346,10 @@
     <div class="field">
       <label for="sUnits">Temperature</label>
       <select id="sUnits"><option value="fahrenheit">Fahrenheit</option><option value="celsius">Celsius</option></select>
+    </div>
+    <div class="field">
+      <label for="sFs">Full screen</label>
+      <select id="sFs"><option value="1">Go full screen on first tap</option><option value="0">Only with the button</option></select>
     </div>
     <div class="field">
       <label for="sIdle">Ambient screen after</label>
@@ -838,7 +851,7 @@ $('#closeDevices').onclick = () => { pendingUri = null; $('#devices').classList.
 function openSettings(){
   $('#sHouse').value = store.get('house',''); $('#sGreet').value = store.get('greetName','the Testaiuti family'); $('#sClient').value = store.get('clientId','');
   $('#sRedirect').value = REDIRECT; $('#sCity').value = store.get('city','');
-  $('#sUnits').value = store.get('units','fahrenheit'); $('#sIdle').value = String(store.get('idle', 5));
+  $('#sUnits').value = store.get('units','fahrenheit'); $('#sFs').value = store.get('autoFS', true) ? '1' : '0'; $('#sIdle').value = String(store.get('idle', 5));
   $('#logoutBtn').style.display = store.get('tok', null) ? '' : 'none';
   $('#settings').classList.add('open');
 }
@@ -847,7 +860,7 @@ $('#closeSettings').onclick = () => $('#settings').classList.remove('open');
 $('#saveSettings').onclick = () => {
   const cityChanged = $('#sCity').value.trim() !== store.get('city','') || $('#sUnits').value !== store.get('units','fahrenheit');
   store.set('house', $('#sHouse').value.trim()); store.set('greetName', $('#sGreet').value.trim()); store.set('clientId', $('#sClient').value.trim());
-  store.set('city', $('#sCity').value.trim()); store.set('units', $('#sUnits').value); store.set('idle', +$('#sIdle').value);
+  store.set('city', $('#sCity').value.trim()); store.set('units', $('#sUnits').value); store.set('idle', +$('#sIdle').value); store.set('autoFS', $('#sFs').value === '1');
   $('#settings').classList.remove('open'); tick(); if (cityChanged) loadWeather(); toast('Saved');
 };
 $('#copyRedirect').onclick = async () => {
@@ -857,6 +870,31 @@ $('#copyRedirect').onclick = async () => {
 $('#logoutBtn').onclick = () => { $('#settings').classList.remove('open'); logout(); };
 $('#loginBtn').onclick = login;
 document.querySelectorAll('.scrim').forEach(s => s.addEventListener('click', e => { if (e.target === s) s.classList.remove('open'); }));
+
+/* ---------------- full screen ---------------- */
+const root = document.documentElement;
+const fsReq = root.requestFullscreen || root.webkitRequestFullscreen;
+const isFS = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+const standalone = () => matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches;
+let userLeftFS = false;
+function enterFS(){
+  if (!fsReq || isFS()) return;
+  try{ const r = fsReq.call(root, {navigationUI: 'hide'}); if (r && r.catch) r.catch(() => {}); }catch{}
+}
+function exitFS(){ try{ (document.exitFullscreen || document.webkitExitFullscreen).call(document); }catch{} }
+const EXPAND = '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>', SHRINK = '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>';
+function drawFS(){ $('#fsIco').innerHTML = isFS() ? SHRINK : EXPAND; }
+if (!fsReq || standalone()) $('#fsBtn').hidden = true;
+$('#fsBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  if (isFS()){ userLeftFS = true; exitFS(); } else { userLeftFS = false; enterFS(); }
+});
+document.addEventListener('fullscreenchange', drawFS); document.addEventListener('webkitfullscreenchange', drawFS);
+// browsers only allow full screen after a tap, so the first tap anywhere turns it on
+document.addEventListener('pointerup', e => {
+  if (e.target.closest && e.target.closest('#fsBtn')) return;
+  if (store.get('autoFS', true) && !userLeftFS && !standalone()) enterFS();
+}, true);
 
 /* ---------------- ambient mode ---------------- */
 let idleT;
