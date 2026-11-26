@@ -214,12 +214,14 @@
   @keyframes pulse{50%{filter:brightness(1.12)}}
 
   /* ambient / idle mode */
-  .app{transition:filter 1s ease, transform 1s ease}
+  .app{transition:opacity .9s ease, transform 1s ease}
   .clock .time{align-self:flex-start}
   .ambient-view{color:#fff;--muted:rgba(255,255,255,.72);position:fixed;inset:0;z-index:40;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:4vw;visibility:hidden;background:rgba(8,6,5,0);transition:background .9s ease}
   body.ambient .ambient-view, body.ambient-out .ambient-view{visibility:visible}
-  body.ambient .ambient-view{background:rgba(8,6,5,.42)}
-  body.ambient .app{filter:blur(22px) brightness(.55);transform:scale(1.04)}
+  body.ambient .ambient-view{background:rgba(8,6,5,.30)}
+  body.ambient .app{opacity:0;transform:scale(1.05)}
+  body.ambient .card{-webkit-backdrop-filter:none;backdrop-filter:none}
+  body.ambient.fx-blur .app{opacity:.55;filter:blur(10px);transition:opacity .9s ease, transform 1s ease}
   body.ambient #clock, body.ambient-out #clock, body.ambient.has-song #art, body.ambient-out.has-song #art{visibility:hidden}
   .ambient-view .time{font-size:clamp(120px,19vw,270px);text-shadow:0 10px 50px rgba(0,0,0,.35);will-change:transform}
   .ambient-view .fade{opacity:0;transform:translateY(14px);transition:opacity .3s ease, transform .3s ease}
@@ -449,6 +451,8 @@
       <select id="sFs"><option value="1">Go full screen on first tap</option><option value="0">Only with the button</option></select>
     </div>
     <div class="field">
+      <label for="sFx">Ambient screen look</label>
+      <select id="sFx" style="margin-bottom:10px"><option value="soft">Soft fade (smoothest, best for Portal)</option><option value="blur">Blur (heavier, may stutter)</option></select>
       <label for="sIdle">Ambient screen after</label>
       <select id="sIdle"><option value="0">Never</option><option value="2">2 minutes</option><option value="5">5 minutes</option><option value="10">10 minutes</option></select>
     </div>
@@ -936,7 +940,7 @@ function render(){
   drawProgress();
 }
 function drawProgress(){
-  if (!state || !state.item) return;
+  if (!state || !state.item || B.classList.contains('ambient')) return;
   const dur = state.item.duration_ms;
   const pos = Math.min(dur, state.progress_ms + (state.is_playing ? Date.now() - stateAt : 0));
   $('#barFill').style.width = (pos/dur*100) + '%';
@@ -1164,7 +1168,7 @@ function openSettings(){
   lookDraft = savedLook(); $('#photoUrl').value = /^https:/.test(lookDraft.photo) ? lookDraft.photo : ''; drawLookControls();
   $('#sHouse').value = store.get('house',''); $('#sGreet').value = store.get('greetName','the Testaiuti family'); $('#sClient').value = store.get('clientId','');
   $('#sRedirect').value = REDIRECT; $('#sCity').value = store.get('city','');
-  $('#sUnits').value = store.get('units','fahrenheit'); $('#sSlot').value = store.get('slot','upnext'); $('#sFs').value = store.get('autoFS', true) ? '1' : '0'; $('#sIdle').value = String(store.get('idle', 5));
+  $('#sUnits').value = store.get('units','fahrenheit'); $('#sSlot').value = store.get('slot','upnext'); $('#sFx').value = store.get('idleFx','soft'); $('#sFs').value = store.get('autoFS', true) ? '1' : '0'; $('#sIdle').value = String(store.get('idle', 5));
   $('#logoutBtn').style.display = store.get('tok', null) ? '' : 'none';
   $('#settings').classList.add('open');
 }
@@ -1174,7 +1178,7 @@ $('#closeSettings').onclick = cancelSettings;
 $('#saveSettings').onclick = () => {
   const cityChanged = $('#sCity').value.trim() !== store.get('city','') || $('#sUnits').value !== store.get('units','fahrenheit');
   store.set('house', $('#sHouse').value.trim()); store.set('greetName', $('#sGreet').value.trim()); store.set('clientId', $('#sClient').value.trim());
-  store.set('city', $('#sCity').value.trim()); store.set('units', $('#sUnits').value); store.set('idle', +$('#sIdle').value); store.set('slot', $('#sSlot').value); applySlot(); saveLook(); lookDraft = null; applyLook(savedLook()); store.set('autoFS', $('#sFs').value === '1');
+  store.set('city', $('#sCity').value.trim()); store.set('units', $('#sUnits').value); store.set('idle', +$('#sIdle').value); store.set('slot', $('#sSlot').value); store.set('idleFx', $('#sFx').value); applySlot(); saveLook(); lookDraft = null; applyLook(savedLook()); store.set('autoFS', $('#sFs').value === '1');
   $('#settings').classList.remove('open'); tick(); if (cityChanged) loadWeather(); toast('Saved');
 };
 $('#copyRedirect').onclick = async () => {
@@ -1237,7 +1241,7 @@ function enterAmbient(){
   clearTimeout(outT); B.classList.remove('ambient-out');
   const clockR = $('#clock').getBoundingClientRect(), artR = $('#art').getBoundingClientRect();
   const song = !$('#aSong').hidden && !$('#npView').hidden;
-  B.classList.toggle('has-song', song); B.classList.add('ambient');
+  B.classList.toggle('has-song', song); B.classList.toggle('fx-blur', store.get('idleFx','soft') === 'blur'); B.classList.add('ambient');
   flyIn($('#aClock'), clockR, 1150);
   if (song) flyIn($('#aArt'), artR, 1250);
 }
@@ -1262,6 +1266,21 @@ function wake(){
   }, mins * 60e3);
 }
 ['pointerdown','keydown'].forEach(ev => document.addEventListener(ev, () => wake(), true));
+function exitAmbientNow(){
+  clearTimeout(outT); B.classList.remove('ambient', 'ambient-out', 'has-song');
+  ['#aClock', '#aArt'].forEach(q => { const el = $(q); el.style.transition = 'none'; el.style.transform = ''; });
+}
+// ask the device to keep the screen on while the hub is open
+let wakeLock = null;
+async function keepAwake(){
+  try{ if ('wakeLock' in navigator && document.visibilityState === 'visible' && !wakeLock){ wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => { wakeLock = null; }); } }catch(e){ console.warn('wake lock', e); }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden){ clearTimeout(idleT); exitAmbientNow(); }
+  else { wake(); keepAwake(); }
+});
+document.addEventListener('pointerup', keepAwake, true);
+keepAwake();
 $('#ambient').addEventListener('pointerdown', e => { e.stopPropagation(); wake(); });
 wake();
 
