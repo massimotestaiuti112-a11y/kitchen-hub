@@ -179,6 +179,10 @@
   .bgopt small{display:block;font-weight:500;color:var(--muted);margin-top:2px}
   .bgopt.on{border-color:var(--accent)}
   .photo-preview{height:90px;border-radius:14px;background:rgba(var(--tint),.08) center/cover;margin-bottom:8px}
+  .pbtn{width:44px;height:44px;border-radius:50%;background:var(--accent);color:var(--on-accent);flex:none;font-size:16px}
+  .qrbox{background:#fff;border-radius:22px;padding:16px;display:inline-block;margin:4px auto 14px}
+  .qrbox img{display:block;width:min(300px,60vw);height:auto;image-rendering:pixelated}
+  .sres-h{margin:14px 0 6px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:700}
   .sheet h3{font-family:var(--display);font-weight:500;font-size:26px;margin:0 0 16px}
   .field{margin-bottom:16px}
   .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;font-weight:600}
@@ -267,6 +271,9 @@
         <div class="t" id="wTemp">--°</div>
         <div class="d"><span id="wDesc"></span><br><span id="wPlace"></span></div>
       </div>
+      <button class="icon-btn" id="guestBtn" aria-label="Guest music QR code" hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></svg>
+      </button>
       <button class="icon-btn" id="fsBtn" aria-label="Full screen">
         <svg id="fsIco" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
       </button>
@@ -325,9 +332,14 @@
     <section class="col">
       <div class="card player" id="playerCard">
         <p class="label">Now playing
+          <span style="display:flex;gap:8px">
+          <button class="icon-btn" id="searchBtn" style="width:40px;height:40px" aria-label="Search Spotify">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          </button>
           <button class="icon-btn" id="devicesBtn" style="width:40px;height:40px" aria-label="Choose speaker">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="3"/><circle cx="12" cy="14" r="4"/><circle cx="12" cy="6.5" r="1"/></svg>
           </button>
+          </span>
         </p>
 
         <div class="connect" id="connectView">
@@ -464,6 +476,32 @@
   </div>
 </div>
 
+<!-- search -->
+<div class="scrim" id="searchSheet">
+  <div class="sheet">
+    <h3>Search Spotify</h3>
+    <form class="add" id="searchForm" style="margin:0 0 6px">
+      <input id="searchQ" placeholder="Song, artist, album or playlist" autocomplete="off" spellcheck="false" enterkeyhint="search">
+      <button type="submit" aria-label="Search" style="display:grid;place-items:center"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+    </form>
+    <small style="color:var(--muted);display:block;margin:0 0 10px">▶ plays now · + adds a song to the queue</small>
+    <div id="searchRes"></div>
+    <div class="actions"><button class="btn primary" id="searchDone" type="button">Done</button></div>
+  </div>
+</div>
+
+<!-- guest QR -->
+<div class="scrim" id="guestSheet">
+  <div class="sheet" style="text-align:center">
+    <h3>Guests: add your music</h3>
+    <div id="guestBody"></div>
+    <div class="actions" style="justify-content:center">
+      <button class="btn danger" id="guestOff" type="button" hidden>Turn off guest mode</button>
+      <button class="btn primary" id="guestDone" type="button">Done</button>
+    </div>
+  </div>
+</div>
+
 <!-- playlist picker -->
 <div class="scrim" id="plEdit">
   <div class="sheet">
@@ -498,6 +536,7 @@
 <div class="alarm" id="alarm"><h2>Time’s up!</h2><p>Tap anywhere to stop</p></div>
 <div class="toast" id="toast"></div>
 
+<script src="qrcode.js"></script>
 <script>
 (() => {
 'use strict';
@@ -811,20 +850,22 @@ drawConv();
 const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 function randStr(n){ const a = new Uint8Array(n); crypto.getRandomValues(a); const c='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'; return Array.from(a, x => c[x % c.length]).join(''); }
 
-async function login(){
+const GUEST_SCOPES = 'user-modify-playback-state user-read-playback-state user-read-currently-playing';
+async function login(kind){
+  kind = kind === 'guest' ? 'guest' : 'main';
   const cid = store.get('clientId','').trim();
   if (!cid){ toast('Add your Spotify Client ID first'); openSettings(); return; }
   if (!window.isSecureContext || !crypto.subtle){ toast('This page must be opened over https:// for Spotify sign-in'); return; }
   const verifier = randStr(64), state = randStr(16);
-  store.set('verifier', verifier); store.set('oauthState', state);
+  store.set('verifier', verifier); store.set('oauthState', state); store.set('oauthKind', kind);
   const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
-  const p = new URLSearchParams({client_id:cid, response_type:'code', redirect_uri:REDIRECT, code_challenge_method:'S256', code_challenge:challenge, scope:SCOPES, state});
+  const p = new URLSearchParams({client_id:cid, response_type:'code', redirect_uri:REDIRECT, code_challenge_method:'S256', code_challenge:challenge, scope: kind === 'guest' ? GUEST_SCOPES : SCOPES, state});
   location.href = 'https://accounts.spotify.com/authorize?' + p;
 }
-function saveTokens(j){
+function saveTokens(j, key = 'tok'){
   if (!j.access_token) throw new Error(j.error_description || j.error || 'Token error');
-  const prev = store.get('tok', {});
-  store.set('tok', {access:j.access_token, refresh:j.refresh_token || prev.refresh, exp: Date.now() + (j.expires_in - 60)*1000});
+  const prev = store.get(key, {}) || {};
+  store.set(key, {access:j.access_token, refresh:j.refresh_token || prev.refresh, exp: Date.now() + (j.expires_in - 60)*1000});
 }
 async function tokenRequest(params){
   const r = await fetch('https://accounts.spotify.com/api/token', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:new URLSearchParams(params)});
@@ -837,11 +878,13 @@ async function handleCallback(){
   if (q.get('error')){ toast('Spotify sign-in was cancelled'); return; }
   if (q.get('state') !== store.get('oauthState','')){ toast('Sign-in check failed, please try again'); return; }
   try{
-    saveTokens(await tokenRequest({client_id:store.get('clientId',''), grant_type:'authorization_code', code:q.get('code'), redirect_uri:REDIRECT, code_verifier:store.get('verifier','')}));
-    toast('Spotify connected 🎶');
+    const kind = store.get('oauthKind', 'main');
+    saveTokens(await tokenRequest({client_id:store.get('clientId',''), grant_type:'authorization_code', code:q.get('code'), redirect_uri:REDIRECT, code_verifier:store.get('verifier','')}), kind === 'guest' ? 'gtok' : 'tok');
+    if (kind === 'guest'){ openGuestAfterBoot = true; toast('Guest mode is on'); } else toast('Spotify connected 🎶');
   }catch(e){ toast('Sign-in failed: ' + e.message); }
-  store.del('verifier'); store.del('oauthState');
+  store.del('verifier'); store.del('oauthState'); store.del('oauthKind');
 }
+let openGuestAfterBoot = false;
 let refreshing = null;
 async function getToken(force){
   const t = store.get('tok', null); if (!t) return null;
@@ -863,7 +906,7 @@ async function api(path, opts = {}, retried){
   return j;
 }
 function logout(){
-  store.del('tok'); try{ player && player.disconnect(); }catch{}
+  store.del('tok'); store.del('gtok'); $('#guestBtn').hidden = true; try{ player && player.disconnect(); }catch{}
   player = null; sdkDevice = null; state = null; showConnect(); toast('Spotify disconnected');
 }
 
@@ -989,11 +1032,12 @@ $('#vol').addEventListener('input', e => {
 });
 $('#vol').addEventListener('change', () => { volDragging = false; });
 
-async function playContext(uri){
+function playContext(uri){ return playBody({context_uri: uri}); }
+async function playBody(body){
   activate();
-  try{ await api('/me/player/play' + devParam(), {method:'PUT', body: JSON.stringify({context_uri: uri})}); pollSoon(800); }
+  try{ await api('/me/player/play' + devParam(), {method:'PUT', body: JSON.stringify(body)}); pollSoon(800); }
   catch(e){
-    if (e.status === 404 || e.reason === 'NO_ACTIVE_DEVICE'){ pendingUri = uri; openDevices(); toast('Choose where to play'); }
+    if (e.status === 404 || e.reason === 'NO_ACTIVE_DEVICE'){ pendingUri = body; openDevices(); toast('Choose where to play'); }
     else if (e.reason === 'PREMIUM_REQUIRED') toast('Spotify Premium is needed to play music here');
     else toast(e.message);
   }
@@ -1150,7 +1194,7 @@ async function openDevices(){
       b.onclick = async () => {
         activate();
         try{
-          if (pendingUri){ await api('/me/player/play?device_id=' + d.id, {method:'PUT', body: JSON.stringify({context_uri: pendingUri})}); pendingUri = null; }
+          if (pendingUri){ await api('/me/player/play?device_id=' + d.id, {method:'PUT', body: JSON.stringify(typeof pendingUri === 'string' ? {context_uri: pendingUri} : pendingUri)}); pendingUri = null; }
           else await api('/me/player', {method:'PUT', body: JSON.stringify({device_ids:[d.id], play:true})});
           $('#devices').classList.remove('open'); toast('Playing on ' + d.name); pollSoon(900);
         }catch(e){ toast(e.message); }
@@ -1186,7 +1230,7 @@ $('#copyRedirect').onclick = async () => {
   catch{ $('#sRedirect').select(); toast('Select and copy the address above'); }
 };
 $('#logoutBtn').onclick = () => { $('#settings').classList.remove('open'); logout(); };
-$('#loginBtn').onclick = login;
+$('#loginBtn').onclick = () => login();
 document.querySelectorAll('.scrim').forEach(s => s.addEventListener('click', e => { if (e.target !== s) return; if (s.id === 'settings') cancelSettings(); else s.classList.remove('open'); }));
 
 /* ---------------- full screen ---------------- */
@@ -1286,12 +1330,90 @@ wake();
 
 document.addEventListener('visibilitychange', () => { if (!document.hidden && store.get('tok', null)) pollSoon(200); });
 
+
+/* ---------------- search ---------------- */
+function openSearch(){ $('#searchSheet').classList.add('open'); setTimeout(() => $('#searchQ').focus(), 50); }
+$('#searchBtn').onclick = () => { if (store.get('tok', null)) openSearch(); else login(); };
+$('#searchDone').onclick = () => $('#searchSheet').classList.remove('open');
+$('#searchForm').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('#searchQ').value.trim(); if (!q) return; $('#searchQ').blur();
+  const box = $('#searchRes'); box.innerHTML = '<div class="empty">Searching…</div>';
+  try{
+    const j = await api('/search?type=track,album,playlist&limit=5&q=' + encodeURIComponent(q));
+    box.innerHTML = '';
+    const groups = [
+      ['Songs', ((j.tracks && j.tracks.items) || []).filter(Boolean).map(t => ({uri:t.uri, name:t.name, sub:(t.artists||[]).map(a => a.name).join(', '), img:((t.album && t.album.images) || []).slice(-1)[0], body: t.album ? {context_uri:t.album.uri, offset:{uri:t.uri}} : {uris:[t.uri]}, queue:true}))],
+      ['Albums', ((j.albums && j.albums.items) || []).filter(Boolean).map(a => ({uri:a.uri, name:a.name, sub:(a.artists||[]).map(x => x.name).join(', '), img:(a.images || []).slice(-1)[0], body:{context_uri:a.uri}}))],
+      ['Playlists', ((j.playlists && j.playlists.items) || []).filter(Boolean).map(p => ({uri:p.uri, name:p.name, sub:(p.owner && p.owner.display_name) || '', img:(p.images || [])[0], body:{context_uri:p.uri}, pl:p}))]
+    ];
+    let any = false;
+    groups.forEach(([title, items]) => {
+      if (!items.length) return; any = true;
+      const h = document.createElement('div'); h.className = 'sres-h'; h.textContent = title; box.appendChild(h);
+      items.forEach(it => {
+        const r = document.createElement('div'); r.className = 'pl-row';
+        r.innerHTML = '<span class="pc"></span><span class="pn"><span></span><small style="display:block;color:var(--muted);font-weight:500;font-size:13px;overflow:hidden;text-overflow:ellipsis"></small></span>' + (it.queue ? '<button class="mv q" aria-label="Add to queue" style="font-size:24px">+</button>' : '') + '<button class="pbtn play" aria-label="Play now">▶</button>';
+        if (it.img && it.img.url) r.querySelector('.pc').style.backgroundImage = `url("${it.img.url}")`;
+        r.querySelector('.pn span').textContent = it.name; r.querySelector('.pn small').textContent = it.sub;
+        r.querySelector('.play').onclick = () => { playBody(it.body); toast('Playing ' + it.name); };
+        const qb = r.querySelector('.q');
+        if (qb) qb.onclick = async () => {
+          try{ await api('/me/player/queue?uri=' + encodeURIComponent(it.uri) + (devParam() ? '&' + devParam().slice(1) : ''), {method:'POST'}); toast('Added ' + it.name + ' to the queue'); pollQueueSoon(); }
+          catch(err){ toast(err.status === 404 ? 'Start something playing first, then add to the queue' : 'Couldn’t add: ' + err.message); }
+        };
+        box.appendChild(r);
+      });
+    });
+    if (!any) box.innerHTML = '<div class="empty">Nothing found. Try other words.</div>';
+  }catch(err){ box.innerHTML = '<div class="empty"></div>'; box.firstChild.textContent = 'Search didn’t work: ' + err.message; }
+};
+
+/* ---------------- guest QR ---------------- */
+// Guests get a separate key that can only control playback and expires within an hour.
+// Its refresh key stays on this hub; the QR code only carries the short-lived key.
+async function guestToken(minLeftMs){
+  const t = store.get('gtok', null); if (!t) return null;
+  if (t.exp - Date.now() > minLeftMs) return t;
+  if (!t.refresh) return null;
+  try{ saveTokens(await tokenRequest({client_id:store.get('clientId',''), grant_type:'refresh_token', refresh_token:t.refresh}), 'gtok'); return store.get('gtok'); }
+  catch(e){ console.warn('guest refresh', e); store.del('gtok'); return null; }
+}
+let guestT;
+async function drawGuest(){
+  clearTimeout(guestT);
+  const body = $('#guestBody');
+  const t = store.get('gtok', null);
+  $('#guestOff').hidden = !t;
+  if (!t){
+    body.innerHTML = '<p style="color:var(--muted);line-height:1.55;margin:0 0 16px">Show a QR code that friends can scan to play their own playlists and songs here — no app or login needed on their phone.<br><br>Their phone only gets a temporary key that can control the music. It can’t see your playlists or account, and it stops working within an hour.</p><button class="btn primary" id="guestOn" type="button">Turn on guest mode</button><small style="display:block;color:var(--muted);margin-top:10px">You’ll hop to Spotify for a second to approve it.</small>';
+    $('#guestOn').onclick = () => login('guest');
+    return;
+  }
+  body.innerHTML = '<div class="empty">Making a fresh code…</div>';
+  const g = await guestToken(40 * 60e3);
+  if (!g){ store.del('gtok'); drawGuest(); return; }
+  const dev = (state && state.device && state.device.id) || sdkDevice || '';
+  const name = (store.get('house','') || 'Kitchen') + ' Hub';
+  const url = new URL('guest.html', location.href).href.split('#')[0] + '#' + new URLSearchParams({t: g.access, e: String(g.exp), n: name, d: dev});
+  const qr = qrcode(0, 'L'); qr.addData(url); qr.make();
+  body.innerHTML = '<div class="qrbox"><img alt="QR code for guests"></div><p style="margin:0 0 4px;font-weight:700;font-size:18px">Scan with your phone camera</p><p style="color:var(--muted);margin:0" id="guestUntil"></p>';
+  body.querySelector('img').src = qr.createDataURL(8, 2);
+  $('#guestUntil').textContent = `This code works until ${new Date(g.exp).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}. Open this again any time for a new one.`;
+  guestT = setTimeout(() => { if ($('#guestSheet').classList.contains('open')) drawGuest(); }, 10 * 60e3);
+}
+function openGuest(){ $('#guestSheet').classList.add('open'); drawGuest(); }
+$('#guestBtn').onclick = openGuest;
+$('#guestDone').onclick = () => { clearTimeout(guestT); $('#guestSheet').classList.remove('open'); };
+$('#guestOff').onclick = () => { store.del('gtok'); toast('Guest mode off. Codes already scanned stop within the hour.'); drawGuest(); };
+
 /* ---------------- boot ---------------- */
 (async function boot(){
   await handleCallback();
   if (store.get('tok', null)){
     showPlayer(); initSDK(); poll(); loadPlaylists(); loadMe();
-    applySlot();
+    applySlot(); $('#guestBtn').hidden = false;
+    if (openGuestAfterBoot) setTimeout(openGuest, 600);
     setInterval(loadPlaylists, 30*60e3);
   } else {
     showConnect(store.get('clientId','') ? undefined : 'Open settings (top right) and paste your Spotify Client ID to get started. It takes about 3 minutes.');

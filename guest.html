@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14110f">
+<meta name="robots" content="noindex">
+<title>Add music to the kitchen</title>
+<link rel="icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500&family=Manrope:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#14110f;--panel:rgba(255,248,240,.06);--line:rgba(255,248,240,.10);--text:#f6efe6;--muted:rgba(246,239,230,.6);--accent:#f2a65a;--on:#24160b;--display:'Fraunces',Georgia,serif;--body:'Manrope',system-ui,sans-serif}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--body)}
+  body{min-height:100dvh;padding:20px 16px 40px;background:radial-gradient(700px 400px at 0% 0%,rgba(242,166,90,.14),transparent 60%) var(--bg)}
+  button,input{font:inherit;color:inherit}
+  button{border:0;background:none;cursor:pointer}
+  .wrap{max-width:520px;margin:0 auto}
+  h1{font-family:var(--display);font-weight:500;font-size:28px;margin:6px 0 4px;line-height:1.15}
+  .sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:16px;margin-bottom:14px}
+  .label{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:0 0 10px}
+  .np{display:flex;gap:12px;align-items:center}
+  .np .a{width:56px;height:56px;border-radius:12px;background:rgba(255,248,240,.1) center/cover;flex:none}
+  .np b{display:block;font-size:16px}
+  .np span{color:var(--muted);font-size:14px}
+  .row{display:flex;gap:8px}
+  input{flex:1;min-width:0;background:rgba(255,248,240,.07);border:1px solid var(--line);border-radius:14px;padding:14px;outline:none;font-size:16px}
+  input:focus{border-color:var(--accent)}
+  .go{background:var(--accent);color:var(--on);font-weight:700;border-radius:14px;padding:0 18px}
+  .tip{color:var(--muted);font-size:13px;line-height:1.5;margin:10px 0 0}
+  .res{list-style:none;margin:12px 0 0;padding:0}
+  .res li{display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line)}
+  .res .a{width:48px;height:48px;border-radius:10px;background:rgba(255,248,240,.1) center/cover;flex:none}
+  .res .t{flex:1;min-width:0}
+  .res b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .res small{color:var(--muted);font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .res .k{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700}
+  .act{width:42px;height:42px;border-radius:50%;background:rgba(255,248,240,.08);font-size:16px;flex:none;display:grid;place-items:center}
+  .act.play{background:var(--accent);color:var(--on)}
+  .gone{text-align:center;padding:40px 10px}
+  .gone h1{font-size:26px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(20px);opacity:0;background:#2b241f;border:1px solid var(--line);padding:12px 18px;border-radius:14px;transition:all .25s;font-size:15px;max-width:90vw;text-align:center}
+  .toast.show{opacity:1;transform:translateX(-50%)}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const app = $('#app');
+let toastT;
+function toast(m){ const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 3000); }
+
+// The hub puts a short-lived, music-control-only key in the link (#t=...). It never reaches any server but Spotify.
+const h = new URLSearchParams(location.hash.slice(1));
+if (h.get('t')){
+  try{ sessionStorage.setItem('khg', JSON.stringify({t: h.get('t'), e: +h.get('e'), n: h.get('n') || 'the kitchen', d: h.get('d') || ''})); }catch{}
+  history.replaceState(null, '', location.pathname);
+}
+let G = null; try{ G = JSON.parse(sessionStorage.getItem('khg')); }catch{}
+
+function expired(){
+  app.innerHTML = '<div class="gone"><h1>This code has expired</h1><p class="sub">Scan the QR code on the kitchen hub again to get a fresh one.</p></div>';
+}
+if (!G || !G.t || Date.now() > G.e){ expired(); return; }
+
+app.innerHTML = `
+  <h1></h1>
+  <p class="sub" id="until"></p>
+  <div class="card" id="npCard" hidden><p class="label">Playing now</p><div class="np"><span class="a" id="npArt"></span><div><b id="npT"></b><span id="npA"></span></div></div></div>
+  <div class="card">
+    <p class="label">Play your playlist</p>
+    <form class="row" id="linkForm"><input id="link" placeholder="Paste a Spotify link" autocomplete="off" inputmode="url"><button class="go">Play</button></form>
+    <p class="tip">In the Spotify app, open your playlist (or an album or song), tap <b>Share → Copy link</b>, then paste it here.</p>
+  </div>
+  <div class="card">
+    <p class="label">Or search</p>
+    <form class="row" id="searchForm"><input id="q" placeholder="Song, artist or playlist" autocomplete="off" enterkeyhint="search"><button class="go">Go</button></form>
+    <ul class="res" id="res"></ul>
+  </div>
+  <p class="foot">This page can only play music on the hub. It can’t see anyone’s account.</p>`;
+$('h1').textContent = `Add music to ${G.n}`;
+$('#until').textContent = `Works until ${new Date(G.e).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})}`;
+
+async function api(path, opts = {}){
+  if (Date.now() > G.e){ expired(); throw new Error('expired'); }
+  const r = await fetch('https://api.spotify.com/v1' + path, {...opts, headers:{Authorization:'Bearer ' + G.t, 'Content-Type':'application/json'}});
+  if (r.status === 401){ expired(); throw new Error('expired'); }
+  if (r.status === 204 || r.status === 202) return null;
+  const txt = await r.text(); let j = null; try{ j = txt ? JSON.parse(txt) : null; }catch{}
+  if (!r.ok) throw Object.assign(new Error((j && j.error && j.error.message) || ('Error ' + r.status)), {status: r.status, reason: j && j.error && j.error.reason});
+  return j;
+}
+// play on whatever the hub is using; if nothing is active, use the hub's own speaker
+async function send(path, method, body){
+  try{ return await api(path, {method, body: body ? JSON.stringify(body) : undefined}); }
+  catch(e){
+    if ((e.status === 404 || e.reason === 'NO_ACTIVE_DEVICE') && G.d){
+      const sep = path.includes('?') ? '&' : '?';
+      return api(path + sep + 'device_id=' + encodeURIComponent(G.d), {method, body: body ? JSON.stringify(body) : undefined});
+    }
+    throw e;
+  }
+}
+const fail = e => { if (e.message !== 'expired') toast(e.status === 404 ? 'The hub isn’t playing anywhere yet — ask someone to start music on it first' : 'Couldn’t play that: ' + e.message); };
+async function playUri(uri, label){
+  const body = /:track:/.test(uri) ? {uris:[uri]} : {context_uri: uri};
+  try{ await send('/me/player/play', 'PUT', body); toast('Playing ' + (label || 'on the hub') + ' 🎶'); setTimeout(nowPlaying, 1200); }catch(e){ fail(e); }
+}
+async function queue(uri, label){
+  try{ await send('/me/player/queue?uri=' + encodeURIComponent(uri), 'POST'); toast('Added ' + (label || 'song') + ' to the queue'); }catch(e){ fail(e); }
+}
+
+$('#linkForm').onsubmit = e => {
+  e.preventDefault();
+  const v = $('#link').value.trim();
+  const m = v.match(/(playlist|album|track)[/:]([A-Za-z0-9]{22})/);
+  if (!m){ toast('That doesn’t look like a Spotify link'); return; }
+  playUri(`spotify:${m[1]}:${m[2]}`, 'your ' + (m[1] === 'track' ? 'song' : m[1]));
+  $('#link').blur();
+};
+
+$('#searchForm').onsubmit = async e => {
+  e.preventDefault();
+  const q = $('#q').value.trim(); if (!q) return; $('#q').blur();
+  const ul = $('#res'); ul.innerHTML = '<li><small>Searching…</small></li>';
+  try{
+    const j = await api('/search?type=track,playlist&limit=6&q=' + encodeURIComponent(q));
+    const rows = [];
+    ((j.tracks && j.tracks.items) || []).filter(Boolean).forEach(t => rows.push({kind:'Song', uri:t.uri, name:t.name, sub:(t.artists||[]).map(a => a.name).join(', '), img:((t.album && t.album.images) || []).slice(-1)[0], ctx: t.album && t.album.uri}));
+    ((j.playlists && j.playlists.items) || []).filter(Boolean).forEach(p => rows.push({kind:'Playlist', uri:p.uri, name:p.name, sub:(p.owner && p.owner.display_name) || '', img:(p.images || [])[0]}));
+    ul.innerHTML = rows.length ? '' : '<li><small>Nothing found. Try other words.</small></li>';
+    rows.forEach(r => {
+      const li = document.createElement('li');
+      li.innerHTML = '<span class="a"></span><div class="t"><span class="k"></span><b></b><small></small></div>' + (r.kind === 'Song' ? '<button class="act q" aria-label="Add to queue">+</button>' : '') + '<button class="act play" aria-label="Play now">▶</button>';
+      if (r.img && r.img.url) li.querySelector('.a').style.backgroundImage = `url("${r.img.url}")`;
+      li.querySelector('.k').textContent = r.kind; li.querySelector('b').textContent = r.name; li.querySelector('small').textContent = r.sub;
+      li.querySelector('.play').onclick = () => playUri(r.uri, r.name);
+      const qb = li.querySelector('.q'); if (qb) qb.onclick = () => queue(r.uri, r.name);
+      ul.appendChild(li);
+    });
+  }catch(e){ if (e.message !== 'expired') ul.innerHTML = '<li><small>Search didn’t work right now.</small></li>'; }
+};
+
+async function nowPlaying(){
+  try{
+    const j = await api('/me/player/currently-playing');
+    const it = j && j.item;
+    $('#npCard').hidden = !it;
+    if (it){
+      $('#npT').textContent = it.name;
+      $('#npA').textContent = (it.artists || []).map(a => a.name).join(', ');
+      const img = ((it.album && it.album.images) || []).slice(-1)[0];
+      $('#npArt').style.backgroundImage = img ? `url("${img.url}")` : '';
+    }
+  }catch{}
+}
+nowPlaying(); setInterval(nowPlaying, 10000);
+setInterval(() => { if (Date.now() > G.e) expired(); }, 30000);
+})();
+</script>
+</body>
+</html>
